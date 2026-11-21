@@ -96,7 +96,7 @@ select, input[type=search] {
   border: 1px solid var(--line); background: var(--bg); color: var(--fg);
 }
 .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; flex: 1; }
-.btn.done { background: var(--good); border-color: var(--good); }
+.nophone { color: var(--bad); }
 .check { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; color: var(--muted); font-size: 15px; cursor: pointer; padding: 8px 2px; }
 .check input { width: 20px; height: 20px; accent-color: var(--good); }
 .more { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; text-decoration: underline; padding: 0; cursor: pointer; }

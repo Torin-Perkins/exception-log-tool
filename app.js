@@ -1,7 +1,8 @@
 // ---------- Unlogged Texts ----------
 // Shows the unlogged-session text messages (unlogged.json, built from the "<Brand> Unlogged Sessions
 // <pay period>" Google Docs by scripts/build_unlogged.py). Pick GRIP or Elevate and a pay period,
-// then copy each trainer's text into Messages. What's been sent is remembered on this phone only.
+// then text each trainer (their cell number comes from the ClubReady staff lists) or copy the text.
+// What's been sent, and numbers typed in for trainers missing one, are remembered on this phone only.
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -13,6 +14,9 @@ const store = {
 const S = { data: null, brand: store.get("ut.brand", "GRIP"), docId: "", filter: "todo", search: "", sent: {}, edits: {}, open: {} };
 const doc = () => S.data && S.data.docs.find((d) => d.id === S.docId);
 const keyOf = (t) => `${t.name}|${t.club}`;
+const myPhones = () => store.get("ut.phones", {}); // numbers typed in on this phone, by brand|trainer
+const phoneOf = (t) => myPhones()[`${S.brand}|${t.name}`] || t.phone || "";
+const fmtPhone = (p) => `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}`;
 const status = (text, bad) => { $("status").textContent = text; $("status").classList.toggle("bad", !!bad); };
 
 async function load() {
@@ -83,28 +87,38 @@ function render() {
     return !q || `${t.name} ${t.club}`.toLowerCase().includes(q);
   });
   $("list").innerHTML = list.length ? list.map((t) => {
-    const k = keyOf(t), sent = !!S.sent[k], msg = S.edits[k] ?? t.message, long = t.sessions > 6 && !S.open[k];
+    const k = keyOf(t), sent = !!S.sent[k], msg = S.edits[k] ?? t.message, long = t.sessions > 6 && !S.open[k], ph = phoneOf(t);
     const rows = Math.min(msg.split("\n").length + 1, long ? 8 : 40);
     return `<article class="card${sent ? " sent" : ""}" data-k="${esc(k)}">
       <div class="top">
         <div><div class="name">${esc(t.name)}${t.note ? `<span class="tag">${esc(t.note)}</span>` : ""}</div>
-          <div class="meta">${esc(t.club)}${t.label && !/^\d+ sessions?$/.test(t.label) ? ` · ${esc(t.label)}` : ""}</div></div>
+          <div class="meta">${esc(t.club)}${t.label && !/^\d+ sessions?$/.test(t.label) ? ` · ${esc(t.label)}` : ""}</div>
+          <div class="meta">${ph ? `${esc(fmtPhone(ph))} <button type="button" class="more" data-act="phone">change</button>`
+            : `<span class="nophone">No number on file</span> <button type="button" class="more" data-act="phone">add number</button>`}</div></div>
         <span class="count">${t.sessions} session${t.sessions === 1 ? "" : "s"}</span>
       </div>
       <textarea class="msg${long ? " collapsed" : ""}" rows="${rows}" aria-label="Text for ${esc(t.name)}">${esc(msg)}</textarea>
       ${long ? `<button type="button" class="more" data-act="expand">Show all ${t.sessions} sessions</button>` : ""}
       <div class="actions">
-        <button type="button" class="btn primary" data-act="copy">Copy</button>
-        <a class="btn" href="#" data-act="sms">Messages</a>
+        <a class="btn primary" href="#" data-act="sms">${ph ? `Text ${esc(t.name.split(/\s+/)[0])}` : "Messages"}</a>
+        <button type="button" class="btn" data-act="copy">Copy</button>
         <label class="check"><input type="checkbox" data-act="sent"${sent ? " checked" : ""}> Sent</label>
       </div>
     </article>`;
   }).join("") : `<p class="empty">${S.filter === "todo" && !q ? "All texts sent for this pay period." : "No one here."}</p>`;
 
+  // Grow each message box to fit its text (long ones stay short until "Show all").
+  document.querySelectorAll(".msg:not(.collapsed)").forEach(fit);
+
   $("needs").hidden = !d.needsLook.length;
   $("needsCount").textContent = d.needsLook.length ? `(${d.needsLook.length})` : "";
   $("needsList").innerHTML = d.needsLook.map((x) => `<li>${esc(x)}</li>`).join("");
   $("docLink").innerHTML = `${d.intro ? `${esc(d.intro)} ` : ""}<a href="${esc(d.docUrl)}" target="_blank" rel="noopener">Open the doc</a>`;
+}
+
+function fit(ta) {
+  ta.style.height = "auto";
+  ta.style.height = `${ta.scrollHeight + 2}px`;
 }
 
 function markSent(k, on) {
@@ -125,7 +139,7 @@ async function copyText(text, ta) {
 }
 
 // iOS reads "&body=", Android "?body=", so "?&body=" works on both. No number: pick the trainer in Messages.
-const smsHref = (msg) => `sms:?&body=${encodeURIComponent(msg)}`;
+const smsHref = (phone, msg) => `sms:${phone ? `+1${phone}` : ""}?&body=${encodeURIComponent(msg)}`;
 
 $("list").addEventListener("click", async (e) => {
   const el = e.target.closest("[data-act]");
@@ -135,13 +149,21 @@ $("list").addEventListener("click", async (e) => {
     const ok = await copyText(ta.value, ta);
     if (!ok) return status("Couldn't copy: press and hold the text to copy it.", true);
     el.textContent = "Copied ✓";
-    el.classList.add("done");
     status(`Copied the text for ${t.name}. Paste it into Messages.`);
     setTimeout(() => { markSent(k, true); render(); }, 900);
   } else if (el.dataset.act === "sms") {
-    el.href = smsHref(ta.value); // follows the link into Messages with this text filled in
+    el.href = smsHref(phoneOf(t), ta.value); // follows the link into Messages with the number and text filled in
     markSent(k, true);
     setTimeout(render, 500);
+  } else if (el.dataset.act === "phone") {
+    const v = prompt(`Cell number for ${t.name}`, phoneOf(t) ? fmtPhone(phoneOf(t)) : "");
+    if (v == null) return;
+    const d = v.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""), all = myPhones();
+    if (d && d.length !== 10) return status("Enter a 10-digit number.", true);
+    if (d && d !== t.phone) all[`${S.brand}|${t.name}`] = d; else delete all[`${S.brand}|${t.name}`];
+    store.set("ut.phones", all);
+    status(d ? `Saved ${t.name}'s number on this phone.` : `Cleared the number for ${t.name}.`);
+    render();
   } else if (el.dataset.act === "expand") {
     S.open[k] = true;
     render();
@@ -155,6 +177,7 @@ $("list").addEventListener("change", (e) => {
 });
 $("list").addEventListener("input", (e) => {
   if (!e.target.classList.contains("msg")) return;
+  if (!e.target.classList.contains("collapsed")) fit(e.target);
   S.edits[e.target.closest(".card").dataset.k] = e.target.value;
 });
 $("brandSeg").addEventListener("click", (e) => {

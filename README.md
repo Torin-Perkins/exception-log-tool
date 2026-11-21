@@ -2,9 +2,10 @@
 
 A phone-friendly page for sending trainers their **unlogged session** texts for the exception logs.
 Pick **GRIP** or **Elevate**, choose the **pay period**, and each trainer's text is ready to go:
-**Copy** puts it on the clipboard to paste into Messages, and **Messages** opens a new text with it filled
-in (you pick the trainer). Each text is editable before you send it, and **Sent** checks off who's done
-(remembered on that phone, per pay period). Notes from the doc's headings (like "SHOW" or "STOPPED HERE")
+**Text** opens Messages with the trainer's cell number and the text filled in, and **Copy** puts the text
+on the clipboard. Each text is editable before you send it, and **Sent** checks off who's done
+(remembered on that phone, per pay period). For a trainer with no number on file, tap **add number**
+to save one on that phone; **Messages** then opens without a recipient until you do. Notes from the doc's headings (like "SHOW" or "STOPPED HERE")
 show as tags, and the doc's "Needs a look" list is at the bottom.
 
 ## Where the texts come from
@@ -20,18 +21,24 @@ The docs need the same layout as now: a `Trainer Name (Club), N sessions` headin
 `Hi …` through `Did … Thank you!`, with one session per line in between. Anything after the heading's
 ` - ` becomes a tag.
 
+Trainer numbers come from the ClubReady staff lists (`stafflist_<date><Brand>.xls`) in the
+**USAPT Data / Staff List** folder: the newest list for the brand first, with older lists filling gaps.
+A trainer is matched by full name (or first + last name), preferring current staff at the doc's club; if
+two different people match equally, no number is used rather than a guess. Upload a new staff list to
+the folder to pick up new numbers.
+
 ## Files
 
 | File | What it is |
 | --- | --- |
 | `index.html`, `style.css`, `app.js` | The page |
-| `scripts/build_unlogged.py` | Builds `unlogged.json` from the docs |
+| `scripts/build_unlogged.py` | Builds `unlogged.json` from the docs and the staff lists |
 | `scripts/extra_docs.txt` | Docs outside the Unlogged Sessions folder to include |
 | `.github/workflows/deploy.yml` | Builds and publishes to GitHub Pages on each push to `main`, every 3 hours and on demand |
 
 ## Privacy
 
-`unlogged.json` (trainer names, clubs, client names and session times) is never committed; it is only part
+`unlogged.json` (trainer names, clubs and cell numbers, client names and session times) is never committed; it is only part
 of the Pages deploy. But **anyone with the site's link can read it**. The page and `robots.txt` ask search
 engines not to index it.
 

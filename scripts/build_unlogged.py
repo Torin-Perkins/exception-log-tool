@@ -3,12 +3,16 @@ Google Docs (one text message per trainer, written for the exception logs).
 
 It reads the docs in the shared "Unlogged Sessions" Drive folder, plus any doc IDs listed in
 scripts/extra_docs.txt, through their public "Anyone with the link" views (no credentials). A doc
-that isn't shared that way is skipped with a warning. The output holds trainer names, clubs and
-client names with session times, as plain data: anyone with the site's link can read it.
+that isn't shared that way is skipped with a warning. Each trainer's cell number comes from the
+ClubReady staff lists in the "Staff List" folder (newest list first, older ones fill gaps).
+The output holds trainer names, clubs, trainer cell numbers and client names with session times,
+as plain data: anyone with the site's link can read it.
 
 Usage: python scripts/build_unlogged.py [output folder]
+Needs: pip install xlrd openpyxl
 """
 import html
+import io
 import json
 import os
 import re
@@ -17,8 +21,9 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-# USAPT Data / Unlogged Sessions
+# USAPT Data / Unlogged Sessions and USAPT Data / Staff List
 FOLDER = "1I3494fPCOV43SBoOdkzGjQtSz75lYYC_"
+STAFF_FOLDER = "1CzSqR5FYD6iz9ZpMldZpZjJTz6JvDwhB"
 EXTRA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extra_docs.txt")
 UA = {"User-Agent": "Mozilla/5.0 (drive-data)"}
 MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
@@ -26,23 +31,134 @@ TITLE_RE = re.compile(r"\b(GRIP|Elevate|Lighthouse)\b.*?Unlogged Sessions\s*[–
 HEAD_RE = re.compile(r"^(?P<name>.+?)\s*\((?P<club>[^)]*)\)\s*,?\s*(?P<rest>.*)$")
 
 
-def get(url):
+def get(url, binary=False):
     with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=120) as r:
-        return r.read().decode("utf-8", "replace")
+        data = r.read()
+    return data if binary else data.decode("utf-8", "replace")
 
 
-def list_docs():
-    """(id, title) for each Google Doc in the folder (and its subfolders)."""
-    out, todo = [], [FOLDER]
+def list_folder(folder):
+    """(id, title, href) for each file in a shared folder (and its subfolders)."""
+    out, todo = [], [folder]
     while todo:
         page = get(f"https://drive.google.com/embeddedfolderview?id={todo.pop()}")
         for fid, href, title in re.findall(r'id="entry-([\w-]+)".*?href="([^"]+)".*?flip-entry-title">([^<]*)<', page, re.S):
             href = html.unescape(href)
             if "/drive/folders/" in href:
                 todo.append(fid)
-            elif "docs.google.com/document" in href:
-                out.append((fid, html.unescape(title).strip()))
+            else:
+                out.append((fid, html.unescape(title).strip(), href))
     return out
+
+
+def list_docs():
+    return [(fid, title) for fid, title, href in list_folder(FOLDER) if "docs.google.com/document" in href]
+
+
+# ---------- Trainer phone numbers (ClubReady staff lists) ----------
+def words(s):
+    return re.sub(r"[^a-z ]", "", re.sub(r"[.\-']", " ", str(s or "").lower())).split()
+
+
+def phone(v):
+    if isinstance(v, float):
+        v = str(int(v))
+    d = re.sub(r"\D", "", str(v or ""))
+    if len(d) == 11 and d[0] == "1":
+        d = d[1:]
+    return d if len(d) == 10 else ""
+
+
+def read_rows(fid, title):
+    if len(fid) > 40:  # a Google Sheet
+        data = get(f"https://docs.google.com/spreadsheets/d/{fid}/export?format=xlsx", binary=True)
+    else:
+        data = get(f"https://drive.usercontent.google.com/download?id={fid}&export=download", binary=True)
+    if data[:2] == b"PK":
+        import openpyxl
+        ws = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True).worksheets[0]
+        return [list(r) for r in ws.iter_rows(values_only=True)]
+    if data[:4] == bytes.fromhex("d0cf11e0"):
+        import xlrd
+        sh = xlrd.open_workbook(file_contents=data).sheet_by_index(0)
+        return [sh.row_values(i) for i in range(sh.nrows)]
+    raise ValueError(f"{title}: not an Excel file (is it shared 'Anyone with the link'?)")
+
+
+def staff_rows(rows):
+    """ClubReady staff list rows -> [{first, last, club, terminated, phone}]."""
+    head = next(i for i, r in enumerate(rows) if "FirstName" in [str(x).strip() for x in r])
+    cols = {str(c).strip(): j for j, c in enumerate(rows[head])}
+    out = []
+    for r in rows[head + 1:]:
+        g = lambda c: r[cols[c]] if c in cols and cols[c] < len(r) and r[cols[c]] is not None else ""
+        first, last = str(g("FirstName")).strip(), str(g("LastName")).strip()
+        if not first and not last:
+            continue
+        loc = str(g("Location"))
+        out.append({"first": first, "last": last, "club": loc.split(" - ", 1)[1].strip() if " - " in loc else loc,
+                    "terminated": "terminated" in str(g("Employee Type")).lower(),
+                    "phone": phone(g("Cell Phone")) or phone(g("Home Phone"))})
+    return out
+
+
+def list_date(title):
+    """'stafflist_11-16GRIP.xls' -> (11, 16); newest lists are tried first."""
+    m = re.search(r"(\d{1,2})-(\d{1,2})(?:-(\d{4}))?", title)
+    return (int(m.group(3) or 0), int(m.group(1)), int(m.group(2))) if m else (0, 0, 0)
+
+
+def load_staff():
+    """{brand: [staff list rows, newest list first]}"""
+    staff = {}
+    files = [(fid, t) for fid, t, _ in list_folder(STAFF_FOLDER) if re.search(r"staff", t, re.I)]
+    now_year = datetime.now(timezone.utc).year
+    files.sort(key=lambda f: (list_date(f[1])[0] or now_year, *list_date(f[1])[1:]), reverse=True)
+    for fid, title in files:
+        m = re.search(r"GRIP|Elevate|Lighthouse", title, re.I)
+        if not m:
+            continue
+        brand = {"grip": "GRIP", "elevate": "Elevate", "lighthouse": "Lighthouse"}[m.group(0).lower()]
+        try:
+            rows = staff_rows(read_rows(fid, title))
+        except Exception as e:  # noqa: BLE001 - one bad list shouldn't stop the build
+            print(f"warning: skipped staff list {title}: {e}", file=sys.stderr)
+            continue
+        staff.setdefault(brand, []).append(rows)
+        print(f"staff list {title}: {len(rows)} people")
+    return staff
+
+
+def find_phone(lists, name, club):
+    """The trainer's number from the newest staff list that has one. Matches full name first,
+    then first + last name; prefers current staff at the doc's club. Never guesses between two
+    different people."""
+    n = words(name)
+    if not n:
+        return ""
+    clubs = [words(c) for c in re.split(r",|found under", club) if c.strip()]
+    for rows in lists:
+        cands = []
+        for s in rows:
+            f, l = words(s["first"]), words(s["last"])
+            if not f or not l or not s["phone"]:
+                continue
+            if f + l == n or "".join(f + l) == "".join(n):
+                rank = 3
+            elif f[0] == n[0] and l[-1] == n[-1]:
+                rank = 2
+            elif f[0] == n[0] and l[0] in n[1:]:
+                rank = 1
+            else:
+                continue
+            here = any(set(c) & set(words(s["club"])) for c in clubs)
+            cands.append(((rank, not s["terminated"], here), s["phone"]))
+        if cands:
+            best = max(k for k, _ in cands)
+            nums = {p for k, p in cands if k == best}
+            if len(nums) == 1:
+                return nums.pop()
+    return ""
 
 
 def extra_docs():
@@ -153,6 +269,11 @@ def main():
         print(f"{doc['brand']} {doc['period']}: {len(doc['trainers'])} trainers")
     if not docs:
         sys.exit("No unlogged session docs could be read")
+    staff = load_staff()
+    for d in docs:
+        for t in d["trainers"]:
+            t["phone"] = find_phone(staff.get(d["brand"], []), t["name"], t["club"])
+        print(f"{d['brand']} {d['period']}: numbers for {sum(1 for t in d['trainers'] if t['phone'])} of {len(d['trainers'])} trainers")
     docs.sort(key=lambda d: (d["brand"], -d["sort"]))
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "unlogged.json"), "w", encoding="utf-8") as f:
