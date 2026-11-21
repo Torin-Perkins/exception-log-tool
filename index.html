@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Unlogged Texts · USA PT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="usapt-logo.png">
+</head>
+<body>
+<nav id="tabs">
+  <a class="brand" href="./" title="USA Personal Training"><img src="usapt-logo.png" alt="USA Personal Training" width="232" height="139"></a>
+  <span class="tab" aria-current="page">Unlogged Texts</span>
+</nav>
+
+<main class="wrap">
+  <header>
+    <h1>Unlogged Texts</h1>
+    <p class="sub">One text per trainer about their unlogged sessions. Tap <b>Copy</b> and paste it into Messages, or tap <b>Messages</b> to start a new text with it filled in. <span id="asOf"></span></p>
+  </header>
+
+  <section class="pickers">
+    <div class="seg" id="brandSeg" role="group" aria-label="Brand">
+      <button type="button" data-brand="GRIP">GRIP</button>
+      <button type="button" data-brand="Elevate">Elevate</button>
+    </div>
+    <label class="field">Pay period <select id="period"></select></label>
+  </section>
+
+  <p id="status" class="status" role="status"></p>
+
+  <section id="app" hidden>
+    <div class="summary" id="summary"></div>
+    <div class="tools">
+      <div class="seg small" id="filterSeg" role="group" aria-label="Show">
+        <button type="button" data-filter="todo">To send</button>
+        <button type="button" data-filter="sent">Sent</button>
+        <button type="button" data-filter="all">All</button>
+      </div>
+      <input id="search" type="search" placeholder="Search trainer or club" autocomplete="off">
+    </div>
+    <div id="list" class="list"></div>
+    <details id="needs" class="needs" hidden>
+      <summary>Needs a look <span id="needsCount"></span></summary>
+      <ul id="needsList"></ul>
+    </details>
+    <p class="hint" id="docLink"></p>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

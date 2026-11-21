@@ -1,0 +1,49 @@
+name: Deploy Unlogged Texts
+
+# Builds unlogged.json from the "<Brand> Unlogged Sessions <pay period>" Google Docs and publishes
+# it with the site to GitHub Pages. The data file is only part of the Pages deploy and is never
+# committed. Requires repo Settings -> Pages -> Source: "GitHub Actions".
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 */3 * * *" # every 3 hours, to pick up new and edited docs
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Collect site files
+        run: |
+          mkdir _site
+          cp index.html style.css app.js usapt-logo.png robots.txt _site/
+          # Version the site's own scripts and styles so phones load this deploy's files, not cached ones.
+          sed -i -E "s#(src|href)=\"([a-z]+\.(js|css))\"#\1=\"\2?v=${GITHUB_SHA::8}\"#g" _site/index.html
+      - run: python scripts/build_unlogged.py _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
